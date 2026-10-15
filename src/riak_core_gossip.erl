@@ -327,7 +327,7 @@ log_node_removed(Node, Old) ->
 remove_from_cluster(Ring, ExitingNode) ->
     remove_from_cluster(Ring,
                         ExitingNode,
-                        erlang:timestamp()).
+                        undefined).
 
 remove_from_cluster(Ring, ExitingNode, Seed) ->
     % Get a list of indices owned by the ExitingNode...
@@ -396,11 +396,10 @@ attempt_simple_transfer(Seed, Ring, [{P, Exit} | Rest],
                 [] -> target_n_fail;
                 Qualifiers ->
                     %% these nodes don't violate target_n forward
-                    {Rand, Seed2} = rand:uniform_s(length(Qualifiers),
-                                                   Seed),
+                    Rand = rand:uniform(length(Qualifiers)),
                     Chosen = lists:nth(Rand, Qualifiers),
                     %% choose one, and do the rest of the ring
-                    attempt_simple_transfer(Seed2,
+                    attempt_simple_transfer(Seed,
                                             riak_core_ring:transfer_node(P,
                                                                          Chosen,
                                                                          Ring),
