@@ -42,5 +42,7 @@ send_event_unreliable(Name, Event) ->
     ok.
 
 bang_unreliable(Dest, Msg) ->
-    catch erlang:send(Dest, Msg, [noconnect, nosuspend]),
+    try erlang:send(Dest, Msg, [noconnect, nosuspend]) catch
+        _:_ -> ok
+    end,
     Msg.

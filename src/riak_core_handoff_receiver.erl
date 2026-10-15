@@ -127,8 +127,12 @@ handle_info({tcp_error, _Socket, Reason},
     {stop, normal, State};
 handle_info({tcp, Socket, Data}, State) ->
     [MsgType | MsgData] = Data,
-    case catch process_message(MsgType, MsgData, State) of
-        {'EXIT', Reason} ->
+    try process_message(MsgType, MsgData, State) of
+        NewState when is_record(NewState, state) ->
+            inet:setopts(Socket, [{active, once}]),
+            {noreply, NewState, State#state.recv_timeout_len}
+    catch
+        _:Reason ->
             logger:error("Handoff receiver for partition ~p exited "
                          "abnormally after processing ~p objects "
                          "from ~p: ~p",
@@ -136,10 +140,7 @@ handle_info({tcp, Socket, Data}, State) ->
                           State#state.count,
                           State#state.peer,
                           Reason]),
-            {stop, normal, State};
-        NewState when is_record(NewState, state) ->
-            inet:setopts(Socket, [{active, once}]),
-            {noreply, NewState, State#state.recv_timeout_len}
+            {stop, normal, State}
     end;
 handle_info(timeout, State) ->
     logger:error("Handoff receiver for partition ~p timed "

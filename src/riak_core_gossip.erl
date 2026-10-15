@@ -325,9 +325,7 @@ log_node_removed(Node, Old) ->
                 [Node, Old]).
 
 remove_from_cluster(Ring, ExitingNode) ->
-    remove_from_cluster(Ring,
-                        ExitingNode,
-                        undefined).
+    remove_from_cluster(Ring, ExitingNode, undefined).
 
 remove_from_cluster(Ring, ExitingNode, Seed) ->
     % Get a list of indices owned by the ExitingNode...

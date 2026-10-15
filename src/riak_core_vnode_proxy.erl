@@ -128,23 +128,41 @@ overloaded({Mod, Index, Node}) ->
 overloaded(Pid) -> call(Pid, overloaded).
 
 call(Name, Msg) ->
-    call_reply(catch gen:call(Name,
-                              '$vnode_proxy_call',
-                              Msg)).
+    call_reply(catch_exceptions(fun () ->
+                                        gen:call(Name, '$vnode_proxy_call', Msg)
+                                end)).
 
 call(Name, Msg, Timeout) ->
-    call_reply(catch gen:call(Name,
-                              '$vnode_proxy_call',
-                              Msg,
-                              Timeout)).
+    call_reply(catch_exceptions(fun () ->
+                                        gen:call(Name,
+                                                 '$vnode_proxy_call',
+                                                 Msg,
+                                                 Timeout)
+                                end)).
 
 -spec call_reply({atom(), term()}) -> term().
 
 call_reply({ok, Res}) -> Res;
 call_reply({'EXIT', Reason}) -> {error, Reason}.
 
+%% @private
+%% Mirrors the semantics of the deprecated bare `catch Expr`: a throw
+%% passes through unwrapped, an exit produces {'EXIT', Reason}, and an
+%% error produces {'EXIT', {Reason, Stacktrace}}.
+catch_exceptions(Fun) ->
+    try Fun() of
+        Result -> Result
+    catch
+        Term -> Term;
+        exit:Reason -> {'EXIT', Reason};
+        error:Reason:Stacktrace ->
+            {'EXIT', {Reason, Stacktrace}}
+    end.
+
 cast(Name, Msg) ->
-    catch erlang:send(Name, {'$vnode_proxy_cast', Msg}),
+    try erlang:send(Name, {'$vnode_proxy_cast', Msg}) catch
+        _:_ -> ok
+    end,
     ok.
 
 system_continue(Parent, _, State) ->
@@ -199,7 +217,9 @@ handle_cast({unregister_vnode, Pid}, State) ->
     %% The pid may not match the vnode_pid in the state, but we must send the
     %% unregister event anyway -- the vnode manager requires it.
     riak_core_vnode:unregistered(Pid),
-    catch demonitor(State#state.vnode_mref, [flush]),
+    try demonitor(State#state.vnode_mref, [flush]) catch
+        _:_ -> ok
+    end,
     NewState = forget_vnode(State),
     {noreply, NewState};
 handle_cast({vnode_proxy_pong, Ref, Msgs},
@@ -299,46 +319,37 @@ handle_overload(Msg,
                 #state{mod = Module, index = Index}) ->
     %% STATS
     %riak_core_stat:update(dropped_vnode_requests),
-    case Msg of
-        %for gen_fsm
-        {'$gen_event', %send_event
-         #riak_vnode_req_v1{sender = Sender,
-                            request = Request}} ->
-            catch Module:handle_overload_command(Request,
-                                                 Sender,
-                                                 Index);
-        {'$gen_all_state_event', %send_all_state_event
-         #riak_vnode_req_v1{sender = Sender,
-                            request = Request}} ->
-            catch Module:handle_overload_command(Request,
-                                                 Sender,
-                                                 Index);
-        {'$gen_event', %send_event
-         #riak_coverage_req_v1{sender = Sender,
-                               request = Request}} ->
-            catch Module:handle_overload_command(Request,
-                                                 Sender,
-                                                 Index);
-        %for gen_statem
-        {'$gen_cast',
-         #riak_vnode_req_v1{sender = Sender,
-                            request = Request}} ->
-            catch Module:handle_overload_command(Request,
-                                                 Sender,
-                                                 Index);
-        {'$gen_call',
-         #riak_vnode_req_v1{sender = Sender,
-                            request = Request}} ->
-            catch Module:handle_overload_command(Request,
-                                                 Sender,
-                                                 Index);
-        {'$gen_cast',
-         #riak_coverage_req_v1{sender = Sender,
-                               request = Request}} ->
-            catch Module:handle_overload_command(Request,
-                                                 Sender,
-                                                 Index);
-        _ -> catch Module:handle_overload_info(Msg, Index)
+    try case Msg of
+            %for gen_fsm
+            {'$gen_event', %send_event
+             #riak_vnode_req_v1{sender = Sender,
+                                request = Request}} ->
+                Module:handle_overload_command(Request, Sender, Index);
+            {'$gen_all_state_event', %send_all_state_event
+             #riak_vnode_req_v1{sender = Sender,
+                                request = Request}} ->
+                Module:handle_overload_command(Request, Sender, Index);
+            {'$gen_event', %send_event
+             #riak_coverage_req_v1{sender = Sender,
+                                   request = Request}} ->
+                Module:handle_overload_command(Request, Sender, Index);
+            %for gen_statem
+            {'$gen_cast',
+             #riak_vnode_req_v1{sender = Sender,
+                                request = Request}} ->
+                Module:handle_overload_command(Request, Sender, Index);
+            {'$gen_call',
+             #riak_vnode_req_v1{sender = Sender,
+                                request = Request}} ->
+                Module:handle_overload_command(Request, Sender, Index);
+            {'$gen_cast',
+             #riak_coverage_req_v1{sender = Sender,
+                                   request = Request}} ->
+                Module:handle_overload_command(Request, Sender, Index);
+            _ -> Module:handle_overload_info(Msg, Index)
+        end
+    catch
+        _:_ -> ok
     end.
 
 %% @private

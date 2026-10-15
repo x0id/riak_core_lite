@@ -409,7 +409,7 @@ handle_call(refresh_my_ring, _From, State) ->
     {reply, ok, State2};
 handle_call({ring_trans, Fun, Args}, _From,
             State = #state{raw_ring = Ring}) ->
-    case catch Fun(Ring, Args) of
+    try Fun(Ring, Args) of
         {new_ring, NewRing} ->
             State2 = prune_write_notify_ring(NewRing, State),
             riak_core_gossip:random_recursive_gossip(NewRing),
@@ -427,6 +427,11 @@ handle_call({ring_trans, Fun, Args}, _From,
         Other ->
             logger:error("ring_trans: invalid return value: ~p",
                          [Other]),
+            {reply, not_changed, State}
+    catch
+        Class:Reason:Stacktrace ->
+            logger:error("ring_trans: invalid return value: ~p",
+                         [{Class, Reason, Stacktrace}]),
             {reply, not_changed, State}
     end;
 handle_call({set_cluster_name, Name}, _From,
@@ -531,7 +536,7 @@ set_timer(Duration, State) ->
 setup_ets(Mode) ->
     %% Destroy prior version of ETS table. This is necessary for certain
     %% eunit tests, but is unneeded for normal Riak operation.
-    catch ets:delete(?ETS),
+    try ets:delete(?ETS) catch _:_ -> ok end,
     Access = case Mode of
                  live -> protected;
                  test -> public
