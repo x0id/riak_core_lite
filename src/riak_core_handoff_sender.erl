@@ -770,17 +770,21 @@ get_filter(Opts) ->
                                    node()) -> boolean().
 
 remote_supports_batching(Node) ->
-    case catch rpc:call(Node,
-                        riak_core_handoff_receiver,
-                        supports_batching,
-                        [])
-        of
+    try rpc:call(Node,
+                 riak_core_handoff_receiver,
+                 supports_batching,
+                 [])
+    of
         true ->
             logger:debug("remote node supports batching, enabling"),
             true;
         _ ->
             %% whatever the problem here, just revert to the old behavior
             %% which shouldn't matter too much for any single handoff
+            logger:debug("remote node doesn't support batching"),
+            false
+    catch
+        _:_ ->
             logger:debug("remote node doesn't support batching"),
             false
     end.

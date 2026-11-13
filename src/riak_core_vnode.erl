@@ -247,14 +247,12 @@ start_link(Mod, Index, InitialInactivityTimeout,
 wait_for_init(Vnode) ->
     gen_statem:call(Vnode, wait_for_init, infinity).
 
-
 %% #2.1 cast
 %% Send a command message for the vnode module by Pid -
 %% typically to do some deferred processing after returning yourself
 send_command(Pid, Request) ->
     gen_statem:cast(Pid,
                     #riak_vnode_req_v1{request = Request}).
-
 
 %% #2.2 cast
 handoff_error(Vnode, Err, Reason) ->
@@ -269,32 +267,26 @@ send_an_event(VNode, Event) ->
 %riak_core_vnode_proxy - handle_call
 send_req(VNode, Req) -> gen_statem:cast(VNode, Req).
 
-
 %% #2.5
 handoff_complete(VNode) ->
     gen_statem:cast(VNode, handoff_complete).
-
 
 %% #2.6
 resize_transfer_complete(VNode, NotSentAcc) ->
     gen_statem:cast(VNode,
                     {resize_transfer_complete, NotSentAcc}).
 
-
 %% #2.7 - riak_core_vnode_proxy - handle_cast
 unregistered(VNode) ->
     gen_statem:cast(VNode, unregistered).
-
 
 %% #3.1 call
 get_mod_index(VNode) ->
     gen_statem:call(VNode, get_mod_index).
 
-
 %% #3.2 cast
 core_status(VNode) ->
     gen_statem:call(VNode, core_status).
-
 
 %% #3.3 - riak_core_handoff_receiver - process_message
 handoff_data(VNode, MsgData, VNodeTimeout) ->
@@ -302,17 +294,14 @@ handoff_data(VNode, MsgData, VNodeTimeout) ->
                     {handoff_data, MsgData},
                     VNodeTimeout).
 
-
 %% #4.1 cast
 set_forwarding(VNode, ForwardTo) ->
     gen_statem:cast(VNode, {set_forwarding, ForwardTo}).
-
 
 %% #4.2 cast
 trigger_handoff(VNode, TargetIdx, TargetNode) ->
     gen_statem:cast(VNode,
                     {trigger_handoff, TargetIdx, TargetNode}).
-
 
 %% #4.3 cast
 trigger_handoff(VNode, TargetNode) ->
@@ -334,19 +323,16 @@ cancel_handoff(VNode) ->
 send_all_proxy_req(VNode, Req) ->
     gen_statem:cast(VNode, Req).
 
-
-
 %% #5 %TODO
 %% Sends a command to the FSM that called it after Time
 %% has passed.
 -spec send_command_after(integer(),
                          term()) -> reference().
+
 send_command_after(Time, Request) ->
     erlang:send_after(Time,
                       self(),
                       {'$gen_cast', #riak_vnode_req_v1{request = Request}}).
-
-
 
 %% @doc Send a reply to a vnode request.  If
 %%      the Ref is undefined just send the reply
@@ -362,8 +348,8 @@ reply({fsm, ignore_ref, From}, Reply) ->
 reply({fsm, undefined, From}, Reply) ->
     riak_core_send_msg:send_event_unreliable(From, Reply);
 reply({fsm, Ref, From}, Reply) ->
-    riak_core_send_msg:send_event_unreliable(From, {Ref, Reply});
-
+    riak_core_send_msg:send_event_unreliable(From,
+                                             {Ref, Reply});
 reply({server, ignore_ref, From}, Reply) ->
     riak_core_send_msg:reply_unreliable(From, Reply);
 reply({server, undefined, From}, Reply) ->
@@ -966,29 +952,40 @@ vnode_command(_Sender, _Request,
 vnode_command(Sender, Request,
               State = #state{mod = Module, modstate = ModState,
                              pool_pid = Pool}) ->
-    case catch Module:handle_command(Request,
-                                     Sender,
-                                     ModState)
+    %% A throw from handle_command/3 is treated the same as a normal
+    %% return (matched against the same result patterns below); an
+    %% exit/error is reported back as {vnode_error, ExitReason}, with
+    %% ExitReason mirroring what the deprecated bare `catch` used to
+    %% produce ({Reason, Stacktrace} for errors, Reason for exits).
+    case try {ok,
+              Module:handle_command(Request, Sender, ModState)}
+         catch
+             Result -> {ok, Result};
+             exit:ExitedReason -> {error, ExitedReason};
+             error:ErroredReason:Stacktrace ->
+                 {error, {ErroredReason, Stacktrace}}
+         end
         of
-        {'EXIT', ExitReason} ->
-            reply(Sender, {vnode_error, ExitReason}),
-            logger:error("~p command failed ~p",
-                         [Module, ExitReason]),
-            {stop, ExitReason, State#state{modstate = ModState}};
-        continue -> continue(State, ModState);
-        {reply, Reply, NewModState} ->
+        {ok, continue} -> continue(State, ModState);
+        {ok, {reply, Reply, NewModState}} ->
             reply(Sender, Reply),
             continue(State, NewModState);
-        {noreply, NewModState} -> continue(State, NewModState);
-        {async, Work, From, NewModState} ->
+        {ok, {noreply, NewModState}} ->
+            continue(State, NewModState);
+        {ok, {async, Work, From, NewModState}} ->
             %% dispatch some work to the vnode worker pool
             %% the result is sent back to 'From'
             riak_core_vnode_worker_pool:handle_work(Pool,
                                                     Work,
                                                     From),
             continue(State, NewModState);
-        {stop, Reason, NewModState} ->
-            {stop, Reason, State#state{modstate = NewModState}}
+        {ok, {stop, Reason, NewModState}} ->
+            {stop, Reason, State#state{modstate = NewModState}};
+        {error, ExitReason} ->
+            reply(Sender, {vnode_error, ExitReason}),
+            logger:error("~p command failed ~p",
+                         [Module, ExitReason]),
+            {stop, ExitReason, State#state{modstate = ModState}}
     end.
 
 vnode_coverage(Sender, Request, KeySpaces,

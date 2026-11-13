@@ -127,7 +127,7 @@
 
 -ifdef(TEST).
 
--export([stop/0]).
+-export([stop/0, compute_resize/2]).
 
 stop() -> gen_server:call(claimant(), stop).
 
@@ -1077,7 +1077,7 @@ compute_resize(Orig, Resized) ->
                                      Resized ::
                                          riak_core_ring()) -> riak_core_ring().
 
-schedule_first_resize_transfer(smaller,
+schedule_first_resize_transfer(_Type,
                                {Idx, _} = IdxOwner, none, Resized) ->
     %% partition no longer exists in shrunk ring, first successor will be
     %% new owner of its data
