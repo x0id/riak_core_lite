@@ -127,7 +127,7 @@
 
 -ifdef(TEST).
 
--export([stop/0]).
+-export([stop/0, compute_resize/2]).
 
 stop() -> gen_server:call(claimant(), stop).
 
