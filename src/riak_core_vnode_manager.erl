@@ -815,7 +815,8 @@ change_forward(VNodes, Mod, Idx, ForwardTo) ->
     end.
 
 update_handoff(AllVNodes, Ring, CHBin, State) ->
-    case riak_core_ring:ring_ready(Ring) of
+    case riak_core_ring:ring_ready(Ring) orelse
+             riak_core_ring:is_resizing(Ring) of
         false -> State;
         true ->
             NewHO = lists:flatten([case should_handoff(Ring,
@@ -886,6 +887,13 @@ determine_handoff_target(primary, _, _, _, true) ->
 determine_handoff_target(primary, undefined, _, _, _) ->
     %% No ring change indicated for this partition
     undefined;
+determine_handoff_target(primary, '$resize', _, true,
+                         _) ->
+    %% Resize transfers proceed regardless of ring_ready: completed
+    %% resize transfers use {set_only, Ring} which advances the local
+    %% vclock without gossip, keeping ring_ready false and stalling
+    %% all subsequent transfers indefinitely.
+    '$resize';
 determine_handoff_target(primary, NextOwner, true, _,
                          _) ->
     %% Primary, ring is ready, go. This may be a node or a `$resize'
